@@ -36,7 +36,7 @@ inputs:
   tn-venv-install:
     description: >-
       pip requirement spec used to install tn-venv itself, e.g.
-      "tn-venv==0.1.1" or "git+https://github.com/tokenoodle-everything/tn-venv@main".
+      "tn-venv==0.1.0" or "git+https://github.com/tokenoodle-everything/tn-venv@main".
     required: false
     default: "tn-venv"
   tn-venv-args:
