@@ -1,7 +1,6 @@
 name: quick-venv
 description: >-
   Create a ready-to-use Python virtual environment in seconds with tn-venv.
-  and your requirements are installed — all in one step.
 author: Tokenoodle-Everything Organization
 branding:
   icon: zap
