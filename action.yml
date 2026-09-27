@@ -1,0 +1,151 @@
+name: quick-venv
+description: >-
+  Create a ready-to-use Python virtual environment in seconds with tn-venv.
+  The environment is created (or restored from cache), seeded, put on PATH,
+  and your requirements are installed — all in one step.
+author: Tokenoodle-Everything Organization
+branding:
+  icon: zap
+  color: yellow
+
+inputs:
+  python-version:
+    description: >-
+      Python version used to build the environment. Provisioned via
+      actions/setup-python and passed to tn-venv.
+    required: false
+    default: "3.x"
+  dest:
+    description: >-
+      Directory where the virtual environment is created,
+      relative to the workspace root.
+    required: false
+    default: ".venv"
+  requirements:
+    description: >-
+      Whitespace-separated list of requirements files installed with pip
+      after the environment is ready. Missing files are skipped.
+    required: false
+    default: "requirements.txt"
+  install:
+    description: Whether to pip-install the `requirements` files into the environment.
+    required: false
+    default: "true"
+  cache:
+    description: Cache the virtual environment between workflow runs.
+    required: false
+    default: "true"
+  tn-venv-install:
+    description: >-
+      pip requirement spec used to install tn-venv itself, e.g.
+      "tn-venv==0.1.1" or "git+https://github.com/tokenoodle-everything/tn-venv@main".
+    required: false
+    default: "tn-venv"
+  tn-venv-args:
+    description: >-
+      Extra arguments appended to the tn-venv invocation,
+      e.g. "--system-site-packages --upgrade-pip".
+    required: false
+    default: ""
+
+outputs:
+  python-path:
+    description: Absolute path to the environment's Python interpreter.
+    value: ${{ steps.paths.outputs.python-path }}
+  venv-path:
+    description: Absolute path to the virtual environment directory.
+    value: ${{ steps.paths.outputs.venv-path }}
+  cache-hit:
+    description: Whether the environment was restored from cache ("true" / "false").
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install tn-venv
+      shell: bash
+      run: |
+        python -m pip install --disable-pip-version-check --quiet "${{ inputs.tn-venv-install }}"
+        tn-venv --version
+
+    - name: Resolve environment paths
+      id: paths
+      shell: bash
+      env:
+        DEST: ${{ inputs.dest }}
+      run: |
+        case "$DEST" in
+          /*|[A-Za-z]:*) ABS="$DEST" ;;
+          *)             ABS="$PWD/${DEST#./}" ;;
+        esac
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          BIN_DIR="$ABS/Scripts"; PY_EXE="$BIN_DIR/python.exe"
+        else
+          BIN_DIR="$ABS/bin";     PY_EXE="$BIN_DIR/python"
+        fi
+        echo "venv-path=$ABS"       >> "$GITHUB_OUTPUT"
+        echo "bin-dir=$BIN_DIR"     >> "$GITHUB_OUTPUT"
+        echo "python-path=$PY_EXE"  >> "$GITHUB_OUTPUT"
+
+    - name: Cache virtual environment
+      if: inputs.cache == 'true'
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.dest }}
+        key: ${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tnvenv-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tnvenv-
+
+    - name: Create virtual environment
+      shell: bash
+      env:
+        DEST: ${{ inputs.dest }}
+        ARGS: ${{ inputs.tn-venv-args }}
+      run: |
+        set -e
+        PY_BOOT="$(python -c 'import sys; print(sys.executable)')"
+        if [ -f "$DEST/pyvenv.cfg" ]; then
+          echo "::notice::Existing environment found (cache restore) — refreshing in place."
+          time tn-venv "$DEST" -p "$PY_BOOT" --upgrade $ARGS
+        else
+          echo "::notice::Creating a fresh environment with tn-venv."
+          time tn-venv "$DEST" -p "$PY_BOOT" $ARGS
+        fi
+
+    - name: Put the environment on PATH
+      shell: bash
+      run: |
+        echo "${{ steps.paths.outputs.bin-dir }}" >> "$GITHUB_PATH"
+        echo "VIRTUAL_ENV=${{ steps.paths.outputs.venv-path }}" >> "$GITHUB_ENV"
+
+    - name: Install requirements
+      if: inputs.install == 'true'
+      shell: bash
+      env:
+        REQS: ${{ inputs.requirements }}
+        PY_EXE: ${{ steps.paths.outputs.python-path }}
+      run: |
+        set -e
+        for f in $REQS; do
+          if [ -f "$f" ]; then
+            echo "::group::pip install -r $f"
+            "$PY_EXE" -m pip install -r "$f"
+            echo "::endgroup::"
+          else
+            echo "::notice::$f not found — skipping."
+          fi
+        done
+
+    - name: Verify
+      shell: bash
+      run: |
+        echo "python      -> $(command -v python)"
+        echo "VIRTUAL_ENV -> $VIRTUAL_ENV"
+        python --version
+        python -c "import sys; print('sys.prefix =', sys.prefix)"

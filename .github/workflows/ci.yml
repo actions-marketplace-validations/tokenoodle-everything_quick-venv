@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  quick-venv:
+    name: ${{ matrix.os }} · Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write a sample requirements file
+        shell: bash
+        run: echo "certifi" > requirements.txt
+
+      - name: Create the virtual environment
+        id: qv
+        uses: ./
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Use the environment
+        shell: bash
+        run: |
+          python -c "import certifi; print('certifi', certifi.__version__, 'imported from the venv')"
+          test -f "${{ steps.qv.outputs.venv-path }}/pyvenv.cfg"
+          echo "venv-path    = ${{ steps.qv.outputs.venv-path }}"
+          echo "python-path  = ${{ steps.qv.outputs.python-path }}"
+          echo "cache-hit    = ${{ steps.qv.outputs.cache-hit }}"
+
+      - name: Re-running on an existing environment is instant
+        shell: bash
+        run: time tn-venv "${{ steps.qv.outputs.venv-path }}" --upgrade
